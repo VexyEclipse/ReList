@@ -49,8 +49,8 @@ Each immediate child directory is treated as one TV series:
 Anime/
   Bleach/
     Old releases/
-      [Judas] Bleach - 252.mkv
-      [Judas] Bleach - 252.en.srt
+      [Anime] Bleach - 252.mkv
+      [Anime] Bleach - 252.en.srt
   Steins;Gate/
     Show S01E03.mkv
 ```
