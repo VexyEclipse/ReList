@@ -71,7 +71,7 @@ The parser extracts series, season/episode number and episode title independentl
 For example:
 
 ```text
-[bonkai77].Samurai.Champloo.(ENHANCED).Episode.01.Tempestuous.Temperaments.1080p.Dual.Audio.Bluray [D94E527C]
+[Anime].Samurai.Champloo.(ENHANCED).Episode.01.Tempestuous.Temperaments.1080p.Dual.Audio.Bluray [D94E527C]
 ```
 
 is parsed as **Samurai Champloo**, episode **1**, title **Tempestuous Temperaments**. TMDB supplies the final destination title.
