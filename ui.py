@@ -201,6 +201,8 @@ class OrganizerApp(tk.Tk):
         self.override_btn.grid(row=4, column=0, sticky="ew", pady=(10, 0))
         self.confirm_btn = self._button(detail, "Confirm TMDB match", self.confirm_match)
         self.confirm_btn.grid(row=5, column=0, sticky="ew", pady=(6, 0))
+        self.mal_override_btn = self._button(detail, "Correct MAL match…", self.set_mal_override)
+        self.mal_override_btn.grid(row=6, column=0, sticky="ew", pady=(6, 0))
 
         actions = ttk.Frame(shell)
         actions.grid(row=5, column=0, sticky="ew", pady=10)
@@ -315,6 +317,7 @@ class OrganizerApp(tk.Tk):
             widget.configure(state="disabled" if self.busy else "normal")
         self.preview_btn.configure(state="normal" if selected and plans and not self.busy else "disabled")
         self.override_btn.configure(state="normal" if len(selected) == 1 and plans and not self.busy else "disabled")
+        self.mal_override_btn.configure(state="normal" if len(selected) == 1 and plans and not self.busy else "disabled")
         plan = self.engine.series_plans.get(selected[0]) if self.engine and len(selected) == 1 else None
         can_confirm = bool(plan and plan.tmdb_id and plan.status not in {"ERROR", "SKIP"}
                            and not plan.match_confirmed and not self.busy)
@@ -473,6 +476,21 @@ class OrganizerApp(tk.Tk):
             except Exception as error:
                 messagebox.showerror(APP_NAME, str(error), parent=self)
 
+    def set_mal_override(self):
+        folders = self.tree.selection()
+        if self.busy or not self.engine or len(folders) != 1:
+            return
+        value = simpledialog.askinteger("Correct MAL match",
+            f"MyAnimeList anime ID for {folders[0]}:\nFind it in myanimelist.net/anime/<ID>.\n"
+            "This entry's episode numbers must match the library's absolute numbering.",
+            minvalue=1, parent=self)
+        if value:
+            try:
+                self.engine.save_mal_override(folders[0], value)
+                self._invalidate("MAL override saved. Scan again to load Jikan episode titles.")
+            except Exception as error:
+                messagebox.showerror(APP_NAME, str(error), parent=self)
+
     def preview_report(self, folders):
         lines = ["ReList · Change preview", f"Library: {self.engine.root}", "Only normal numbered TV episodes are eligible.", ""]
         for folder in folders:
@@ -543,7 +561,7 @@ class OrganizerApp(tk.Tk):
         apply_button.pack(side="right")
         apply_button.configure(state="disabled")
         self._button(bottom, "Close", win.destroy).pack(side="right", padx=8)
-        ttk.Checkbutton(frame, text="I have reviewed the file paths and TMDB matches.", variable=acknowledged,
+        ttk.Checkbutton(frame, text="I have reviewed the file paths and TMDB/MAL matches.", variable=acknowledged,
                         command=lambda: apply_button.configure(state="normal" if acknowledged.get() and eligible and changes else "disabled")).pack(anchor="w", pady=(8, 0))
         def commit():
             if token != self.generation or engine is not self.engine or self.busy:

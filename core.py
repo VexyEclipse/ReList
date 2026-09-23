@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UI-independent planning, TMDB metadata and conservative file transactions.
+"""UI-independent planning, Jikan titles, TMDB structure and file transactions.
 
 Only positive numbered TV episodes are organized. All plans are read-only until
 apply; manifests are durable write-ahead journals stored beside the application.
@@ -23,6 +23,7 @@ from collections import Counter
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
+from jikan import JikanClient, JikanError
 from episode_index import (parse_release, clean_show, words, exclusion_reason,
                            resolve_collection)
 
@@ -242,8 +243,10 @@ class OrganizerEngine:
         self.series_plans: dict[str, SeriesPlan] = {}
         self.actions_by_series: dict[str, list[MoveAction]] = {}
         self.ignored_by_series: dict[str, list[str]] = {}
-        self.metadata_cache = {}
         self.cancel_event = threading.Event()
+        self.jikan = JikanClient(APP_DIR / ".jikan-cache", self.check_cancelled,
+                                self.cancel_event.wait, self.log)
+        self.mal_overrides = {}
         self.ignored_reasons: dict[str, dict[str, str]] = {}
 
     def log(self, msg):
@@ -257,10 +260,12 @@ class OrganizerEngine:
 
     def load_overrides(self):
         self.overrides = {}
+        self.mal_overrides = {}
         if self.config_path.exists():
             try:
                 data = json.loads(self.config_path.read_text(encoding="utf-8"))
                 self.overrides = data.get("tmdb_overrides", {})
+                self.mal_overrides = data.get("mal_overrides", {})
             except Exception as e:
                 self.log(f"Warning: could not read overrides: {e}")
 
@@ -270,6 +275,42 @@ class OrganizerEngine:
         self.overrides[folder_name] = int(tmdb_id)
         payload["tmdb_overrides"] = self.overrides
         atomic_json(self.config_path, payload)
+
+    def save_mal_override(self, folder_name: str, mal_id: int):
+        if type(mal_id) is not int or mal_id <= 0:
+            raise ValueError("Enter a positive MyAnimeList anime ID.")
+        payload = read_config(self.config_path)
+        overrides = dict(payload.get("mal_overrides", {}))
+        overrides[folder_name] = mal_id
+        payload["mal_overrides"] = overrides
+        atomic_json(self.config_path, payload)
+        self.mal_overrides = overrides
+
+    def choose_mal_match(self, folder_name, details):
+        manual_id = self.mal_overrides.get(folder_name)
+        if manual_id is not None:
+            if type(manual_id) is not int or manual_id <= 0:
+                raise JikanError("Invalid MAL override; set a positive anime ID")
+            match = self.jikan.anime(manual_id)
+        else:
+            names = [details.get("name"), details.get("original_name")]
+            names = list(dict.fromkeys(n for n in names if n))
+            normalized = {normalize_title(n) for n in names}
+            matches = {}
+            for name in names:
+                for result in self.jikan.search_anime(name):
+                    aliases = [result.get("title"), result.get("title_english"),
+                               result.get("title_japanese")]
+                    aliases += [t.get("title") for t in result.get("titles", []) if isinstance(t, dict)]
+                    if result.get("type") == "TV" and any(
+                            normalize_title(n) in normalized for n in aliases if isinstance(n, str) and n):
+                        matches[result["mal_id"]] = result
+            if len(matches) != 1:
+                raise JikanError("No unique exact MAL TV match; use Correct MAL match and scan again")
+            match = next(iter(matches.values()))
+        if match.get("type") != "TV":
+            raise JikanError("The MAL entry is not a normal TV anime; select its TV anime ID")
+        return match
 
     def list_series_dirs(self):
         ignored = {LOG_DIR_NAME}
@@ -328,11 +369,11 @@ class OrganizerEngine:
         details = self.client.tv_details(int(best_result["id"]))
         return details, confidence, note
 
-    def get_episode_maps(self, tmdb_id: int, details=None):
-        if tmdb_id in self.metadata_cache:
-            return self.metadata_cache[tmdb_id]
-
+    def get_episode_maps(self, tmdb_id: int, details=None, mal_id=None):
         details = details if details is not None else self.client.tv_details(tmdb_id)
+        if mal_id is None:
+            raise JikanError("A MAL anime ID is required for episode titles")
+        jikan_episodes = self.jikan.episodes(mal_id)
 
         all_seasons = [
             s for s in details.get("seasons", [])
@@ -374,15 +415,12 @@ class OrganizerEngine:
                     incomplete = True
                     continue
 
-                title = (e.get("name") or f"Episode {en}").strip()
                 meta = EpisodeMeta(
                     season=sn,
                     episode=en,
-                    title=title,
+                    title="",  # TMDB provides numbering only, never episode titles.
                     air_date=e.get("air_date"),
                 )
-                by_season[(sn, en)] = meta
-
                 if en != expected_episode:
                     prefix_valid = False
                     incomplete = True
@@ -398,8 +436,20 @@ class OrganizerEngine:
 
         if incomplete:
             self.log(f"Incomplete TMDB numbering: only the first {len(absolute)} verified absolute episodes are usable; later uncertain files stay untouched.")
-        self.metadata_cache[tmdb_id] = (details, by_season, absolute)
-        return self.metadata_cache[tmdb_id]
+        titled_absolute = {}
+        for record in jikan_episodes:
+            number = record["mal_id"]
+            title = record.get("title")
+            meta = absolute.get(number)
+            if meta is None or not isinstance(title, str) or not title.strip():
+                continue
+            meta.title = title.strip()
+            by_season[(meta.season, meta.episode)] = meta
+            titled_absolute[number] = meta
+        missing = len(absolute) - len(titled_absolute)
+        if missing:
+            self.log(f"  {missing} episode(s) lack a Jikan title; corresponding files stay unchanged.")
+        return details, by_season, titled_absolute
 
     def check_cancelled(self):
         if self.cancel_event.is_set():
@@ -499,7 +549,10 @@ class OrganizerEngine:
 
         tmdb_id = int(details["id"])
         canonical_name = details.get("name") or clean_series_folder_name(series_dir.name)
-        _, by_season, absolute = self.get_episode_maps(tmdb_id, details)
+        mal_match = self.choose_mal_match(series_dir.name, details)
+        mal_id = mal_match["mal_id"]
+        match_note += f"; Jikan/MAL {mal_id}: {mal_match.get('title') or canonical_name} (episode titles)"
+        _, by_season, absolute = self.get_episode_maps(tmdb_id, details, mal_id)
         decisions = resolve_collection(videos, parsed, series_dir,
             [canonical_name, details.get("original_name", ""), clean_show(series_dir.name)],
             by_season, absolute, self.check_cancelled)

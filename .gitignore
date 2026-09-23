@@ -1,6 +1,7 @@
 # Personal settings, TMDB overrides, journals and metadata caches
 .anime-organizer-config.json
 .anime-organizer/
+.jikan-cache/
 
 # Python caches and environments
 __pycache__/

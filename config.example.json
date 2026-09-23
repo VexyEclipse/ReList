@@ -1,5 +1,8 @@
 {
   "tmdb_overrides": {
     "Example Folder Name": 12345
+  },
+  "mal_overrides": {
+    "Example Folder Name": 54321
   }
 }

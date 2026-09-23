@@ -283,7 +283,7 @@ def resolve_collection(videos, parsed, root, aliases, by_season, absolute, check
             if item.season is not None:
                 target = (item.season, number)
                 if target not in by_season:
-                    decisions[path] = Decision(None, "Explicit episode not found in TMDB")
+                    decisions[path] = Decision(None, "Explicit episode has no verified Jikan title")
                 elif exact and target not in exact:
                     decisions[path] = Decision(None, "Episode number conflicts with metadata title")
                 elif soft_extra and target not in exact:
@@ -307,11 +307,11 @@ def resolve_collection(videos, parsed, root, aliases, by_season, absolute, check
                     reason = "Collection numbering is ambiguous or episode is absent"
             elif len(candidates) == 1:
                 target = next(iter(candidates))
-                reason = "Numbered episode in TMDB order" if number in absolute_keys else "Season folder and metadata episode range"
+                reason = "Jikan absolute episode mapped to season/episode" if number in absolute_keys else "Season folder and metadata episode range"
             elif len(candidates) > 1:
                 reason = "Season-relative and absolute numbering disagree; more evidence required"
             else:
-                reason = "Episode not found in verified TMDB numbering"
+                reason = "Episode has no Jikan title in verified season numbering"
             if target and item.strength == "contextual" and not (exact or viable or family_supported):
                 target, reason = None, "Bare number needs corroborating filenames, titles or season context"
             if target and soft_extra and target not in exact:

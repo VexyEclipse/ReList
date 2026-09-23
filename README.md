@@ -1,6 +1,6 @@
 # ReList
 
-A Windows desktop application for organizing **normal anime TV episodes** into Jellyfin season folders. ReList uses TMDB TV metadata, previews every file change, and keeps an undo journal. Movies, specials, OVAs and uncertain media remain untouched.
+A Windows desktop application for organizing **normal anime TV episodes** into Jellyfin season folders. Episode titles come exclusively from MyAnimeList through Jikan v4. TMDB supplies show matching and the existing season/episode structure. ReList previews every file change and keeps an undo journal. Movies, specials, OVAs and uncertain media remain untouched.
 
 
 ## Run
@@ -13,7 +13,7 @@ Double-click `run_relist.bat`, or run from this folder:
 python relist.py
 ```
 
-Keep `relist.py`, `core.py`, `episode_index.py`, and `ui.py` together. Use a writable application folder: configuration and rollback journals are stored here, never in your media library. The API key is kept in memory and is not saved in configuration or preview exports.
+Keep `relist.py`, `core.py`, `jikan.py`, `episode_index.py`, and `ui.py` together. Use a writable application folder: configuration, the `.jikan-cache` metadata cache and rollback journals are stored here, never in your media library. The API key is kept in memory and is not saved in configuration or preview exports. Jikan needs no API key.
 
 ## The workflow
 
@@ -21,7 +21,7 @@ Keep `relist.py`, `core.py`, `episode_index.py`, and `ui.py` together. Use a wri
 2. Click **Scan library**. Scanning is read-only. Activity reports metadata seasons, sidecar indexing, episode mapping and collision checks. Each new scan clears the previous activity view. **Cancel scan** stops after the current metadata request (a request can take up to 25 seconds).
 3. Search or filter the collection. Select a series to inspect its match, mapping counts, and explanation. Ctrl/Shift selects multiple rows; **Select eligible** selects READY/PARTIAL rows in the current filtered view.
 4. If the displayed show is correct, choose **Confirm TMDB match** in the inspector. Confirm its title and ID to reuse the existing scan immediately, without another metadata request. The ID is saved for future scans. Collisions and unmapped episodes still require review; confirmation only resolves uncertainty about the show identity. If the show is incorrect, use **Correct TMDB match…**, enter a different TV-series ID, and scan again.
-5. Click **Preview changes →**. Inspect the exact source/destination paths and the **IGNORED / LEFT UNCHANGED** section. You can export this report to a text file.
+5. Verify the **Jikan/MAL ID and title** in the inspector notes. Automatic MAL matching requires a unique exact TV title/alias match to the matched TMDB show. If it fails or selects the wrong entry, use **Correct MAL match…**, enter the numeric ID from `myanimelist.net/anime/<ID>`, and scan again. Confirming the TMDB match cannot fix a failed MAL lookup. Click **Preview changes →** and inspect the exact source/destination paths and the **IGNORED / LEFT UNCHANGED** section. You can export this report to a text file.
 6. Choose whether to remove empty episode folders, acknowledge the preview, and click **Organize files**. REVIEW/ERROR/SKIP selections cannot be applied.
 7. Refresh the library in Jellyfin. Scan again in ReList before making further changes.
 
@@ -55,7 +55,7 @@ Anime/
     Show S01E03.mkv
 ```
 
-If TMDB maps absolute episode 252 to season 13, episode 23:
+If Jikan episode `mal_id: 252` maps through TMDB's season structure to season 13, episode 23, its Jikan `title` is used:
 
 ```text
 Bleach/
@@ -74,7 +74,7 @@ For example:
 [Anime].Samurai.Champloo.(ENHANCED).Episode.01.Tempestuous.Temperaments.1080p.Dual.Audio.Bluray [D94E527C]
 ```
 
-is parsed as **Samurai Champloo**, episode **1**, title **Tempestuous Temperaments**. TMDB supplies the final destination title.
+is parsed as **Samurai Champloo**, episode **1**, title **Tempestuous Temperaments**. Jikan supplies the final destination title.
 
 ReList evaluates related files in the same directory and series family together:
 
@@ -87,7 +87,13 @@ ReList evaluates related files in the same directory and series family together:
 
 Each proposed file change shows a **MATCH** explanation in the preview. Unresolved files show the evidence that was missing or conflicting. A show still needs a confident TMDB match or your explicit confirmation before it can be applied.
 
-Absolute numbers follow TMDB's positive seasons in order. If metadata contains gaps or duplicate episode records, only the contiguous verified prefix is used for absolute mapping. Later uncertain absolute numbers remain untouched; explicit season/episode identifiers can still use valid individual metadata entries. ReList never shifts later numbers to fill gaps. TMDB ordering can differ from a release group's ordering, so always inspect the preview.
+Jikan's `/v4/anime/{malId}/episodes?page={page}` is fetched through its last page. Each record's `mal_id` is its absolute episode number, regardless of response order or missing records; only its `title` supplies the filename title. That absolute number maps into TMDB's positive seasons in order. TMDB Season 0 is excluded. If TMDB numbering contains gaps or duplicates, only the contiguous verified prefix is usable. Later uncertain episodes, including explicit season/episode files without a verified Jikan mapping, stay untouched. Missing, null or blank Jikan titles also leave files untouched; there is no TMDB-title or generated-title fallback. Jikan gaps never shift later episode numbers.
+
+One MAL entry is used per series folder. MAL sometimes splits sequels/cours into separate anime entries whose numbering starts again at 1. ReList does not concatenate related entries or infer offsets: choose an entry whose episode numbers correspond to this folder's absolute numbering. Episodes outside that entry remain unchanged. Always verify the MAL entry and the season mapping in the preview.
+
+Complete Jikan search, anime and episode responses are cached beside the application for 24 hours, including across restarts. Expired data is refreshed; a complete cache under 7 days old can be reused during a temporary outage, with an activity warning. Older data, malformed responses, duplicate IDs and partial pagination cannot supply replacement metadata. Failed pagination never replaces a complete episode cache. Delete `.jikan-cache` with ReList closed to force a fresh lookup. Overrides are stored separately as `mal_overrides` in configuration.
+
+Requests are paced slightly slower than one per second across clients. HTTP 429 and server/network failures get up to three attempts with exponential backoff and `Retry-After` handling; long requested cooldowns fail the scan promptly. Other HTTP errors fail immediately. Cancellation interrupts pacing/backoff and is checked between requests/pages. Uncached failures produce ERROR with no file actions; missing titles produce PARTIAL or REVIEW. TMDB remains necessary for show matching and season structure, so its key is still required.
 
 Sidecars in the same directory can accompany an episode when their stem exactly matches the video stem or continues with a separator. For example, `.en.srt`, `.ass`, `.nfo`, and `-thumb.jpg` suffixes are preserved. ReList resolves ownership against nearby videos so an ignored video's sidecar is not claimed by a shorter episode name. Ambiguous sidecars remain untouched. Any detected sidecar destination collision blocks the series.
 
@@ -95,11 +101,11 @@ Sidecars in the same directory can accompany an episode when their stem exactly 
 
 - Season 0 / `S00E##`, `Specials`, and `Season 00` content. ReList never requests TMDB Season 0.
 - Files or folders marked as movies, films, OVAs/OADs/ONAs, specials, extras, bonus content, recaps or trailers. Opening/ending and similar extra folders are also excluded.
-- Unrecognized names, multi-episode/range/fractional numbering, and episode numbers absent from TMDB.
+- Unrecognized names, multi-episode/range/fractional numbering, and episodes without a Jikan title mapped to verified season numbering.
 - Symbolic links and Windows junction/reparse points within series folders.
 - Videos directly in the selected root, outside an immediate series folder.
 
-These rules apply even when an extra contains a normal-looking `S01E01` token. Soft markers such as “Pilot,” “Prologue,” “Epilogue,” “Opening” and “Ending” in a filename can be normal episode titles only when the exact TMDB title and episode evidence corroborate that interpretation. Conservative keyword matching may also exclude a genuine episode whose title contains an extras keyword. Review the reason; there is no unsafe force-apply switch. Multiple distinct shows combined in one folder must be separated by the user before organizing.
+These rules apply even when an extra contains a normal-looking `S01E01` token. Soft markers such as “Pilot,” “Prologue,” “Epilogue,” “Opening” and “Ending” in a filename can be normal episode titles only when the exact Jikan title and episode evidence corroborate that interpretation. Conservative keyword matching may also exclude a genuine episode whose title contains an extras keyword. Review the reason; there is no unsafe force-apply switch. Multiple distinct shows combined in one folder must be separated by the user before organizing.
 
 ReList does not search TMDB's movie database, modify media contents, or edit embedded MKV metadata.
 
@@ -133,12 +139,14 @@ After organizing, rescan/refresh the library. If embedded titles or episode info
 ## Architecture and tests
 
 - `relist.py`: stable launcher.
-- `core.py`: TMDB lookup/scoring, metadata validation, series plans, preflight validation and recovery journals. No Tkinter dependency.
+- `core.py`: TMDB show matching/season structure, MAL matching, Jikan title mapping, series plans, preflight validation and recovery journals. No Tkinter dependency.
+- `jikan.py`: Jikan v4 pagination, pacing/retries, cancellation and versioned complete-response caches. [Jikan API documentation](https://docs.api.jikan.moe/).
 - `episode_index.py`: structured release parsing, extras classification and collection-aware episode resolution. No network or filesystem writes.
 - `ui.py`: themed Tkinter workspace, main-thread event queue, background operations, previews and UI state invalidation.
 - `tests/test_core.py`: synthetic metadata and filesystem regression tests, including interruption recovery.
 - `tests/test_episode_index.py`: messy filenames, collection inference, ambiguous/conflicting evidence, metadata gaps and inferred-action rollback tests.
 - `tests/test_ui.py`: real Tk widget tests for filtering, selection, themes, resizing and preview gating.
+- `tests/test_jikan.py`: pagination, caching, outages, retries, missing titles, MAL overrides and absolute-to-season mapping.
 
 Run from the application folder:
 
@@ -146,4 +154,4 @@ Run from the application folder:
 python -m unittest discover -s tests -v
 ```
 
-Tests use isolated, disposable fixtures beneath `tests/`; they do not access real media or contact TMDB. GUI tests require a desktop/Tk installation.
+Tests use isolated, disposable fixtures; they do not access real media or contact TMDB/Jikan. GUI tests require a desktop/Tk installation.
