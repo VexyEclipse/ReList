@@ -24,7 +24,7 @@ It can:
 
 - identify TV series through TMDB;
 - parse existing `S01E01` filenames;
-- parse common absolute-number release names such as `[Judas] Bleach - 252.mkv`;
+- parse common absolute-number release names such as `[Anime] Bleach - 252.mkv`;
 - map absolute episode numbers across TMDB's numbered seasons;
 - fetch English episode titles;
 - create `Season 01`, `Season 02`, etc.;
@@ -102,8 +102,8 @@ python relist.py
 Input:
 
 ```text
-L:\Media\Anime\Bleach\Season 8\[Judas] Bleach - 252.mkv
-L:\Media\Anime\Bleach\Season 8\[Judas] Bleach - 252-thumb.jpg
+C:\Media\Anime\Bleach\Season 8\[Anime] Bleach - 252.mkv
+C:\Media\Anime\Bleach\Season 8\[Anime] Bleach - 252-thumb.jpg
 ```
 
 If TMDB maps absolute episode 252 to season 13 episode 23, the planned output is:
@@ -120,7 +120,7 @@ The program currently understands:
 ```text
 Show S01E03.mkv
 Show.S01E03.1080p.mkv
-[Judas] Bleach - 252.mkv
+[Anime] Bleach - 252.mkv
 Show - 007.mkv
 Show EP 12.mkv
 Show Episode 12.mkv
@@ -139,9 +139,9 @@ Sidecars in the same folder that begin with the exact original video stem are mo
 Examples:
 
 ```text
-[Judas] Bleach - 252-thumb.jpg
-[Judas] Bleach - 252.en.srt
-[Judas] Bleach - 252.ass
+[Anime] Bleach - 252-thumb.jpg
+[Anime] Bleach - 252.en.srt
+[Anime] Bleach - 252.ass
 ```
 
 become sidecars of the new `SxxEyy` filename.
