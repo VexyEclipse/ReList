@@ -1,0 +1,33 @@
+# Personal settings, TMDB overrides, journals and metadata caches
+.anime-organizer-config.json
+.anime-organizer/
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Disposable test fixtures
+tests/fixture-*/
+tests/tmp*/
+
+# Local credentials, exports and logs
+.env
+.env.*
+!.env.example
+ReList-preview*.txt
+*.log
+*.tmp
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.codex/
+.agents/
+Thumbs.db
+Desktop.ini
+.DS_Store
